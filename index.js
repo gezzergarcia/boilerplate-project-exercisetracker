@@ -65,6 +65,17 @@ app.use(cors());
 
 app.use(express.static('public'));
 
+const fechaValidaRexexp = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Custom Error */
+class CustomError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.statusCode = statusCode;
+    log('CustomError', message, statusCode);
+  }
+}
+
 /**
  * Devuelve un usuario por id
  * @param {*} userId
@@ -124,23 +135,72 @@ function createLogsResponse(user, count, exercises) {
     log: logsArray,
   };
 }
+function validarFormatoFecha(fecha) {
+  return fechaValidaRexexp.test(fecha);
+}
 
-class CustomError extends Error {
-  constructor(message, statusCode) {
-    super(message);
-    this.statusCode = statusCode;
-    log('CustomError', message, statusCode);
+/**
+ * Valida los parámetros de la petición
+ */
+function validarParametros(from, to, limit) {
+  log('validarParametros', from, to, limit);
+  if (from) {
+    // validar que from sea una fecha válida
+    if (!Date.parse(from) || !validarFormatoFecha(from)) {
+      throw new CustomError(`Invalid 'from' date: ${from}`, 400);
+    }
   }
+  if (to) {
+    // validar que to sea una fecha válida
+    if (!Date.parse(to) || !validarFormatoFecha(to)) {
+      throw new CustomError(`Invalid 'to' date: ${to}`, 400);
+    }
+  }
+  if (limit) {
+    // validar que limit sea un número entero positivo
+    if (Number.isNaN(limit) || !Number.isInteger(Number(limit)) || Number(limit) < 0) {
+      throw new CustomError(`Invalid 'limit': ${limit}`, 400);
+    }
+    if (from && to) {
+      // validar que from sea menor que to
+      if (from > to) {
+        throw new CustomError('"from" date must be before "to" date', 400);
+      }
+    }
+  }
+}
+
+function getQuery(userid, from, to) {
+  const query = { user: userid };
+  if (Date.parse(from)) {
+    query.date = { $gte: from };
+  }
+  if (Date.parse(to)) {
+    if (query.date) {
+      query.date.$lte = to;
+    } else {
+      query.date = { $lte: to };
+    }
+  }
+  return query;
 }
 
 app.get('/', (req, res) => {
   res.sendFile(`${__dirname}/views/index.html`);
 });
 
+/**
+ * Devuelve los ejercicios de un usuario
+ */
 app.get('/api/users/:id/logs', async (req, res) => {
   logGet(`api/users/${req.params.id}/logs`);
+  logGet(`req.query.from: ${req.query.from}`);
+  logGet(`req.query.to: ${req.query.to}`);
+  logGet(`req.query.limit: ${req.query.limit}`);
 
   try {
+    validarParametros(req.query.from, req.query.to, req.query.limit);
+
     const userId = req.params.id;
 
     // validar que id sea un ObjectId válido
@@ -148,14 +208,20 @@ app.get('/api/users/:id/logs', async (req, res) => {
       throw new CustomError(`Invalid user ID: ${userId}`, 400);
     }
 
-    // validar que el usuario exista
+    // validar que el usuario exista usando los parámetros de la petición
     const user = await User.findById(userId);
 
     if (!user) {
       throw new CustomError(`User not found with ID: ${userId}`, 404);
     }
-    const count = await Exercise.countDocuments({ user: userId }).exec();
-    const exercises = await Exercise.find({ user: userId }).exec();
+    const startDate = new Date(req.query.from); // Fecha de inicio del rango
+    const endDate = new Date(req.query.to); // Fecha de fin del rango
+    log('startDate', startDate);
+    log('endDate', endDate);
+    const query = getQuery(userId, startDate, endDate);
+    log('query', query);
+    const count = await Exercise.countDocuments(query).exec();
+    const exercises = await Exercise.find(query).limit(Number(req.query.limit)).exec();
     const response = createLogsResponse(user, count, exercises);
 
     // devolver todos los ejercicios del usuario
