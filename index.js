@@ -125,6 +125,14 @@ function createLogsResponse(user, count, exercises) {
   };
 }
 
+class CustomError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.statusCode = statusCode;
+    log('CustomError', message, statusCode);
+  }
+}
+
 app.get('/', (req, res) => {
   res.sendFile(`${__dirname}/views/index.html`);
 });
@@ -137,15 +145,14 @@ app.get('/api/users/:id/logs', async (req, res) => {
 
     // validar que id sea un ObjectId válido
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      throw new Error(`Invalid user ID: ${userId}`);
+      throw new CustomError(`Invalid user ID: ${userId}`, 400);
     }
 
     // validar que el usuario exista
     const user = await User.findById(userId);
 
     if (!user) {
-      // TODO: corregir json de error
-      throw new Error(`User not found with ID: ${userId}`);
+      throw new CustomError(`User not found with ID: ${userId}`, 404);
     }
     const count = await Exercise.countDocuments({ user: userId }).exec();
     const exercises = await Exercise.find({ user: userId }).exec();
@@ -154,9 +161,9 @@ app.get('/api/users/:id/logs', async (req, res) => {
     // devolver todos los ejercicios del usuario
     res.json(response);
   } catch (error) {
-    // TODO: corregir json de error
     const errorMessage = error.message || 'An error occurred';
-    res.status(400).json({ error: errorMessage });
+    const statusCode = error.statusCode || 400;
+    res.status(statusCode).json({ error: errorMessage });
   }
 });
 
@@ -186,16 +193,14 @@ app.post('/api/users/:id/exercises', async (req, res) => {
 
     // validar que id sea un ObjectId válido
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      // TODO: corregir json de error
-      throw new Error(`Invalid user ID: ${userId}`);
+      throw new CustomError(`Invalid user ID: ${userId}`, 400);
     }
 
     // validar que el usuario exista
     const user = await User.findById(userId);
 
     if (!user) {
-      // TODO: corregir json de error
-      throw new Error(`User not found with ID: ${userId}`);
+      throw new CustomError(`User not found with ID: ${userId}`, 404);
     }
 
     // crear el nuevo ejercicio usando la información recibida en el body
@@ -207,9 +212,9 @@ app.post('/api/users/:id/exercises', async (req, res) => {
 
     res.json(response);
   } catch (error) {
-    // TODO: corregir json de error
     const errorMessage = error.message || 'An error occurred';
-    res.status(400).json({ error: errorMessage });
+    const statusCode = error.statusCode || 400;
+    res.status(statusCode).json({ error: errorMessage });
   }
 });
 
@@ -234,12 +239,10 @@ app.post('/api/users', async (req, res) => {
         _id: newUser._id,
       });
     } else {
-      // TODO: corregir json de error
-      res.json({ error: 'Username already taken' });
+      res.status(409).json({ error: 'Username already taken' });
     }
   } catch (error) {
     log(error);
-    // TODO: corregir json de error
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
